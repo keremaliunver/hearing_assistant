@@ -3,6 +3,7 @@ package com.rexteam.hearingimpaired
 import MainScreen
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -13,15 +14,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.arthenica.ffmpegkit.FFmpegKit
 import com.assemblyai.api.RealtimeTranscriber
-import com.assemblyai.api.resources.realtime.types.FinalTranscript
-import com.assemblyai.api.resources.realtime.types.PartialTranscript
-import com.assemblyai.api.resources.realtime.types.SessionBegins
 import com.rexteam.hearingimpaired.ui.theme.HearingImpairedTheme
 import com.theokanning.openai.audio.CreateTranscriptionRequest
 import com.theokanning.openai.service.OpenAiService
 import kotlinx.coroutines.*
+import org.vosk.Model
+import org.vosk.Recognizer
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -45,6 +48,8 @@ class MainActivity : ComponentActivity() {
 
     // Observed state for UI (transcribed text)
     private var transcribedText = androidx.compose.runtime.mutableStateOf<String?>(null)
+
+    private var currentMethod = TranscriptionMethod.OPENAI
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,7 +77,11 @@ class MainActivity : ComponentActivity() {
                     onStartRecorded = { startRecording() },
                     onStopRecorded = { stopRecording() },
                     // Observed text
-                    transcribedText = transcribedText.value
+                    transcribedText = transcribedText.value,
+                    // Transcription method callback
+                    onTranscriptionMethodChanged = { method ->
+                        currentMethod = method
+                    }
                 )
             }
         }
@@ -88,6 +97,11 @@ class MainActivity : ComponentActivity() {
         return File(storageDir, "audio_$timeStamp.mp4").absolutePath
     }
 
+    private fun getSampleFilePath(): String {
+        val storageDir = this.getExternalFilesDir(null)
+        return File(storageDir, "10001-90210-01803.wav").absolutePath
+    }
+
     private fun startRecording() {
 
         transcribedText.value = "Listening to the voices..."
@@ -98,6 +112,8 @@ class MainActivity : ComponentActivity() {
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setOutputFile(audioFilePath)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            setAudioSamplingRate(16000)        // Attempt to record at 16 kHz
+            setAudioEncodingBitRate(64000)
 
             try {
                 prepare()
@@ -133,7 +149,10 @@ class MainActivity : ComponentActivity() {
 
         audioFilePath?.let { filePath ->
             CoroutineScope(Dispatchers.IO).launch {
-                transcribeAudio(filePath)
+                when (currentMethod) {
+                    TranscriptionMethod.OPENAI -> transcribeAudio(filePath)
+                    TranscriptionMethod.VOSK   -> transcribeAudioWithVosk(filePath)
+                }
             }
         }
     }
@@ -159,6 +178,84 @@ class MainActivity : ComponentActivity() {
                 }
             } finally {
                 deleteAudioFile(filePath)
+            }
+        }
+    }
+
+    fun getModelPath(context: Context, modelFolderInAssets: String = "vosk-model-small-tr-0-3"): String {
+        // Destination in internal storage
+        val modelDir = File(context.filesDir, modelFolderInAssets)
+
+        if (!modelDir.exists()) {
+            // Copy entire folder from assets if it isn't already there
+            copyAssetsFolder(context, modelFolderInAssets, modelDir)
+        }
+        return modelDir.absolutePath
+    }
+
+    private fun transcribeAudioWithVosk(filePath: String) {
+        val encodedPath = filePath.replace(".mp4", ".wav")
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val localModelPath = getModelPath(this@MainActivity, "vosk-model-small-tr-0-3") // vosk-model-small-en-us-0.15
+                val model = Model(localModelPath)
+                encodeToWav(filePath, encodedPath)
+                val audioStream = FileInputStream(File(encodedPath))
+                val recognizer = Recognizer(model, 16000.0f)
+                val buffer = ByteArray(4096)
+                var resultText = ""
+
+                while (audioStream.read(buffer).also { } != -1) {
+                    if (recognizer.acceptWaveForm(buffer, buffer.size)) {
+                        resultText += recognizer.result
+                    }
+                }
+                resultText += recognizer.finalResult
+
+                Log.d("MainActivity", "Transcribed Text: $resultText")
+                withContext(Dispatchers.Main) {
+                    transcribedText.value = resultText
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Vosk transcription error: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    transcribedText.value = "Error: Could not transcribe audio with Vosk"
+                }
+            } finally {
+                deleteAudioFile(filePath)
+                deleteAudioFile(encodedPath)
+            }
+        }
+    }
+
+    private fun encodeToWav(audioFilePath: String, encodedFilePath: String){
+        val inputFile = File(audioFilePath)
+        val outputWav = File(encodedFilePath)
+        // Synchronously run FFmpeg to decode AAC -> WAV (16 kHz, mono)
+        val command = "-i ${inputFile.absolutePath} -y -ar 16000 -ac 1 ${outputWav.absolutePath}"
+        FFmpegKit.execute(command)
+    }
+
+    @Throws(IOException::class)
+    fun copyAssetsFolder(context: Context, assetsFolderName: String, outputDir: File) {
+        if (!outputDir.exists()) {
+            outputDir.mkdirs()
+        }
+        val assetManager = context.assets
+        val files = assetManager.list(assetsFolderName) ?: emptyArray()
+        for (fileName in files) {
+            val inPath = "$assetsFolderName/$fileName"
+            val outFile = File(outputDir, fileName)
+            if (assetManager.list(inPath)?.isNotEmpty() == true) {
+                // It's a subdirectory, recurse
+                copyAssetsFolder(context, inPath, outFile)
+            } else {
+                // It's a file, copy
+                assetManager.open(inPath).use { input ->
+                    FileOutputStream(outFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
             }
         }
     }

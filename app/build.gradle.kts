@@ -43,6 +43,8 @@ dependencies {
 
     implementation(libs.javaWebSocket)
     implementation(libs.okHttp)
+    implementation(libs.vosk)
+    implementation(libs.ffmpeg)
 
     implementation(libs.assemblyAIService)
     implementation(libs.openAIService)

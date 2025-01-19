@@ -5,9 +5,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
-import androidx.compose.material3.Switch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,6 +20,12 @@ import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import com.rexteam.hearingimpaired.ui.theme.HearingImpairedTheme
 
+// Either import or redefine this enum here if you prefer
+enum class TranscriptionMethod {
+    OPENAI,
+    VOSK
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -27,21 +33,28 @@ fun MainScreen(
     onStopRealtime: () -> Unit,
     onStartRecorded: () -> Unit,
     onStopRecorded: () -> Unit,
-    transcribedText: String? = null
+    transcribedText: String? = null,
+    // NEW: callback for changing transcription method
+    onTranscriptionMethodChanged: (TranscriptionMethod) -> Unit
 ) {
     var isRealtime by remember { mutableStateOf(true) }
-    var isListenPushed by remember { mutableStateOf<Boolean?>(null) }
 
-    val shownText = transcribedText ?: "Hello Androidx!"
+    // NEW: a local state to track which method is selected for "Recorded"
+    var selectedMethod by remember { mutableStateOf(TranscriptionMethod.OPENAI) }
+
+    var isListenPushed by remember { mutableStateOf<Boolean?>(null) }
+    val shownText = transcribedText ?: "Çeviri için bir ses kaydı yapın"
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Hearing Assistant by Rex Team") },
+                title = { Text(text="İşitme Desteği",
+                    fontSize = TextUnit(16f, TextUnitType.Sp),
+                ) },
                 actions = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = if (isRealtime) "Real Time" else "Recorded",
+                            text = if (isRealtime) "Gerçek zamanlı" else "Kayıtlı",
                             color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
@@ -60,7 +73,6 @@ fun MainScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = Color.Cyan
     ) { innerPadding ->
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -87,6 +99,39 @@ fun MainScreen(
                 )
             }
 
+            // NEW: Show this additional row of switches ONLY in Recorded mode:
+            if (!isRealtime) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Online/Offline:",
+                        modifier = Modifier.padding(end = 8.dp),
+                        color = Color.Black
+                    )
+                    // You can use a Switch or two RadioButtons.
+                    // Below example uses a Switch that toggles between OpenAI <-> Vosk
+                    // Alternatively, you might prefer two separate radio buttons.
+                    val isOpenAi = (selectedMethod == TranscriptionMethod.OPENAI)
+                    Switch(
+                        checked = isOpenAi,
+                        onCheckedChange = { checked ->
+                            selectedMethod = if (checked) TranscriptionMethod.OPENAI else TranscriptionMethod.VOSK
+                            // Notify Activity
+                            onTranscriptionMethodChanged(selectedMethod)
+                        }
+                    )
+                    Text(
+                        text = if (isOpenAi) "Online-OpenAI" else "Offline-Vosk",
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+
             // Listen / Stop row
             Row(
                 modifier = Modifier
@@ -105,12 +150,11 @@ fun MainScreen(
                         if (isRealtime) onStartRealtime() else onStartRecorded()
                     }
                 )
-
                 // Stop (Yellow, Stop Icon)
                 CircularIconButton(
                     isPushed = (isListenPushed == false),
                     iconColors = StopButtonColors,
-                    icon = Icons.Filled.Close,
+                    icon = Icons.Filled.Menu,
                     onClick = {
                         isListenPushed = false
                         Log.d("MainScreen", "Stop button clicked")
@@ -122,13 +166,6 @@ fun MainScreen(
     }
 }
 
-/**
- * A circular button with an icon, colored for a “pushed” effect.
- * @param isPushed If true, darken the button and slightly raise elevation.
- * @param iconColors The button color set (normal/pushed).
- * @param icon The ImageVector resource for the icon (e.g., Icons.Filled.PlayArrow).
- * @param onClick Callback for button clicks.
- */
 @Composable
 fun CircularIconButton(
     isPushed: Boolean,
@@ -138,16 +175,24 @@ fun CircularIconButton(
     modifier: Modifier = Modifier,
     shape: Shape = CircleShape
 ) {
-    val backgroundColor = if (isPushed) iconColors.pushedColor else iconColors.normalColor
-    val contentColor = if (isPushed) iconColors.pushedContent else iconColors.normalContent
-    val elevation = if (isPushed) ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
-    else ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+    val backgroundColor =
+        if (isPushed) iconColors.pushedColor else iconColors.normalColor
+    val contentColor =
+        if (isPushed) iconColors.pushedContent else iconColors.normalContent
+
+    val elevation = if (isPushed)
+        ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+    else
+        ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
 
     Button(
         onClick = onClick,
-        modifier = modifier.size(80.dp), // You can adjust size as needed
+        modifier = modifier.size(80.dp),
         shape = shape,
-        colors = ButtonDefaults.buttonColors(containerColor = backgroundColor, contentColor = contentColor),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = backgroundColor,
+            contentColor = contentColor
+        ),
         elevation = elevation
     ) {
         Icon(
@@ -158,9 +203,6 @@ fun CircularIconButton(
     }
 }
 
-/**
- * Data class holding normal vs pushed colors for the circular buttons.
- */
 data class ButtonColorSet(
     val normalColor: Color,
     val pushedColor: Color,
@@ -168,19 +210,16 @@ data class ButtonColorSet(
     val pushedContent: Color
 )
 
-/**
- * Example color sets for Listen (green) vs. Stop (yellow).
- */
 val ListenButtonColors = ButtonColorSet(
-    normalColor = Color(0xFF4CAF50),     // Green 500
-    pushedColor = Color(0xFF388E3C),     // Green 700
+    normalColor = Color(0xFF4CAF50), // Green 500
+    pushedColor = Color(0xFF388E3C), // Green 700
     normalContent = Color.White,
     pushedContent = Color.White
 )
 
 val StopButtonColors = ButtonColorSet(
-    normalColor = Color(0xFFFFC107),     // Yellow 500
-    pushedColor = Color(0xFFFFB300),     // Yellow 700
+    normalColor = Color(0xFFFFC107), // Yellow 500
+    pushedColor = Color(0xFFFFB300), // Yellow 700
     normalContent = Color.Black,
     pushedContent = Color.White
 )
@@ -194,7 +233,8 @@ fun DefaultPreview() {
             onStopRealtime = {},
             onStartRecorded = {},
             onStopRecorded = {},
-            transcribedText = "This is a text message"
+            transcribedText = "Bir ses kaydı başlatın...",
+            onTranscriptionMethodChanged = {}
         )
     }
 }
