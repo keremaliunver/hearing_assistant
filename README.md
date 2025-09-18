@@ -2,7 +2,7 @@
 
 # İşitme Engelliler için Sosyal Hayatı Kolaylaştıran Mobil Uygulama
 
-Bu mobil uygulama, işitme engelli bireylerin sosyal hayatlarını kolaylaştırmayı ve çevrelerindeki seslerden daha fazla haberdar olmalarını sağlamayı amaçlamaktadır. Başlangıçta sadece Android platformunu destekleyen uygulama, gerçek zamanlı ses-metin çevirisi özelliği ile çevre seslerini ve konuşmaları yazıya dökerek kullanıcılara sunar.
+Bu mobil uygulama, işitme engelli bireylerin sosyal hayatlarını kolaylaştırmayı ve çevrelerindeki seslerden daha fazla haberdar olmalarını sağlamayı amaçlamaktadır. Başlangıçta sadece Android platformunu destekleyen uygulama, gerçek zamanlı ses-metin çevirisi özelliği ile çevre seslerini ve konuşmaları yazıya dökerek kullanıcılara sunar. Geliştirmeler devam edecektir.
 
 ## Özellikler
 
